@@ -8,8 +8,11 @@ jobs:
       uses: actions/checkout@v4
     - name: Install MinGW x86-64 compiler
       run: sudo apt install -y g++-mingw-w64-x86-64
-    - name: Install JDK
-      run: sudo apt install -y openjdk-21-jdk
+    - name: Set up JDK 21
+      uses: actions/setup-java@v4
+      with:
+        java-version: '21'
+        distribution: 'temurin'
     - name: Check if input.jar exists
       id: check_input_jar
       uses: andstor/file-existence-action@v2
