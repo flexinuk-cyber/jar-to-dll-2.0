@@ -1,172 +1,106 @@
 import java.io.File;
 import java.io.PrintWriter;
-import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
-import java.security.ProtectionDomain;
 import java.util.ArrayList;
 import java.util.List;
 
 /**
- * FabricInjector — injects Fabric mods into a running JVM (Java 8 - Java 21+).
+ * FabricInjector — Helper invoked from C++ JNI.
  */
-public class FabricInjector extends Thread {
+public class FabricInjector {
 
-    private final byte[][] classes;
-    private final byte[] fabricModJson;
-
-    private FabricInjector(byte[][] classes, byte[] fabricModJson) {
-        this.classes = classes;
-        this.fabricModJson = fabricModJson;
-    }
-
-    /** Entry-point called from native code (injector.cpp). */
-    public static void inject(byte[][] classes, byte[] fabricModJson) {
-        new Thread(new FabricInjector(classes, fabricModJson)).start();
-    }
-
-    @Override
-    public void run() {
-        try (PrintWriter writer = new PrintWriter(
-                System.getProperty("user.home") + File.separator + "jar-to-dll-log.txt", "UTF-8")) {
-            writer.println("[FabricInjector] Starting!");
-            writer.flush();
-            try {
-                runImpl(writer);
-            } catch (Throwable e) {
-                writer.println("[FabricInjector] Fatal error:");
-                e.printStackTrace(writer);
-                writer.flush();
-            }
-            writer.println("[FabricInjector] Done.");
-        } catch (Throwable e) {
-            e.printStackTrace();
-        }
-    }
-
-    private void runImpl(PrintWriter writer) throws Exception {
-        // 1. Find Fabric KnotClassLoader
-        ClassLoader cl = findFabricClassLoader(writer);
-        if (cl == null) {
-            throw new Exception("[FabricInjector] Could not find Fabric KnotClassLoader");
-        }
-        this.setContextClassLoader(cl);
-        writer.println("[FabricInjector] Found ClassLoader: " + cl.getClass().getName());
-        writer.flush();
-
-        // 2. Prepare defineClass mechanism (fallback to Unsafe if reflection fails on Java 17/21+)
-        Method defineClassMethod = null;
-        Object unsafeObj = null;
-        Method unsafeDefineClass = null;
-
+    private static PrintWriter getLogWriter() {
         try {
-            defineClassMethod = ClassLoader.class.getDeclaredMethod(
-                    "defineClass", String.class, byte[].class, Integer.TYPE, Integer.TYPE, ProtectionDomain.class);
-            defineClassMethod.setAccessible(true);
-        } catch (Throwable t) {
-            writer.println("[FabricInjector] Standard defineClass reflection blocked (Java 17/21+), using Unsafe fallback...");
-            writer.flush();
-            try {
-                Class<?> unsafeClass = Class.forName("sun.misc.Unsafe");
-                Field f = unsafeClass.getDeclaredField("theUnsafe");
-                f.setAccessible(true);
-                unsafeObj = f.get(null);
-                unsafeDefineClass = unsafeClass.getMethod("defineClass", String.class, byte[].class, Integer.TYPE, Integer.TYPE, ClassLoader.class, ProtectionDomain.class);
-            } catch (Throwable ut) {
-                writer.println("[FabricInjector] Unsafe lookup failed: " + ut);
-                writer.flush();
-            }
+            return new PrintWriter(System.getProperty("user.home") + File.separator + "jar-to-dll-log.txt", "UTF-8");
+        } catch (Exception e) {
+            return null;
         }
-
-        writer.println("[FabricInjector] Loading " + classes.length + " classes");
-        writer.flush();
-
-        ProtectionDomain pd = cl.getClass().getProtectionDomain();
-
-        for (byte[] classData : classes) {
-            if (classData == null) {
-                throw new Exception("[FabricInjector] classData is null");
-            }
-            try {
-                if (defineClassMethod != null) {
-                    defineClassMethod.invoke(cl, null, classData, 0, classData.length, pd);
-                } else if (unsafeDefineClass != null && unsafeObj != null) {
-                    unsafeDefineClass.invoke(unsafeObj, null, classData, 0, classData.length, cl, pd);
-                } else {
-                    throw new Exception("[FabricInjector] No valid defineClass mechanism available");
-                }
-            } catch (InvocationTargetException ite) {
-                Throwable cause = ite.getCause();
-                if (cause instanceof LinkageError) {
-                    String msg = cause.getMessage();
-                    if (msg != null && (msg.contains("duplicate class definition") || msg.contains("already loaded"))) {
-                        writer.println("[FabricInjector] Class already loaded (skipping)");
-                        writer.flush();
-                        continue;
-                    }
-                }
-                writer.println("[FabricInjector] Exception on class define: " + cause);
-                writer.flush();
-            } catch (Throwable t) {
-                if (t instanceof LinkageError) {
-                    continue;
-                }
-                writer.println("[FabricInjector] Error defining class: " + t);
-                writer.flush();
-            }
-        }
-
-        writer.println("[FabricInjector] All classes loaded");
-        writer.flush();
-
-        // 3. Parse fabric.mod.json to extract entrypoints
-        String jsonText = new String(fabricModJson, StandardCharsets.UTF_8);
-        writer.println("[FabricInjector] fabric.mod.json length: " + jsonText.length());
-        writer.flush();
-
-        List<String> mainEntrypoints   = parseEntrypoints(jsonText, "main");
-        List<String> clientEntrypoints = parseEntrypoints(jsonText, "client");
-
-        writer.println("[FabricInjector] main entrypoints:   " + mainEntrypoints);
-        writer.println("[FabricInjector] client entrypoints: " + clientEntrypoints);
-        writer.flush();
-
-        // 4. Instantiate and call onInitialize() / onInitializeClient()
-        Class<?> modInitializerClass       = loadIfPresent(cl, "net.fabricmc.api.ModInitializer");
-        Class<?> clientModInitializerClass = loadIfPresent(cl, "net.fabricmc.api.ClientModInitializer");
-
-        for (String entrypoint : mainEntrypoints) {
-            callEntrypoint(writer, cl, entrypoint, modInitializerClass, "onInitialize");
-        }
-        for (String entrypoint : clientEntrypoints) {
-            callEntrypoint(writer, cl, entrypoint, clientModInitializerClass, "onInitializeClient");
-        }
-
-        writer.println("[FabricInjector] Successfully injected all entrypoints");
-        writer.flush();
     }
 
-    private static ClassLoader findFabricClassLoader(PrintWriter writer) {
-        ClassLoader best = null;
-        for (Thread thread : Thread.getAllStackTraces().keySet()) {
-            if (thread == null) continue;
-            ClassLoader cl = thread.getContextClassLoader();
-            if (cl == null) continue;
-
-            String name = cl.getClass().getName();
-            writer.println("[FabricInjector] Thread: " + thread.getName() + " [" + name + "]");
-            writer.flush();
-
-            String nameLower = name.toLowerCase();
-            if (nameLower.contains("knot") || nameLower.contains("fabric")) {
-                return cl;
+    /**
+     * Called from C++ JNI to locate the Fabric KnotClassLoader.
+     */
+    public static ClassLoader findFabricClassLoader() {
+        try (PrintWriter writer = getLogWriter()) {
+            if (writer != null) {
+                writer.println("[FabricInjector] Searching for Fabric KnotClassLoader...");
+                writer.flush();
             }
-            if (best == null && !nameLower.contains("appclassloader") && !nameLower.contains("bootstrap")) {
-                best = cl;
+            ClassLoader best = null;
+            for (Thread thread : Thread.getAllStackTraces().keySet()) {
+                if (thread == null) continue;
+                ClassLoader cl = thread.getContextClassLoader();
+                if (cl == null) continue;
+
+                String name = cl.getClass().getName();
+                if (writer != null) {
+                    writer.println("[FabricInjector] Thread: " + thread.getName() + " [" + name + "]");
+                    writer.flush();
+                }
+
+                String nameLower = name.toLowerCase();
+                if (nameLower.contains("knot") || nameLower.contains("fabric")) {
+                    if (writer != null) {
+                        writer.println("[FabricInjector] Found KnotClassLoader: " + name);
+                        writer.flush();
+                    }
+                    return cl;
+                }
+                if (best == null && !nameLower.contains("appclassloader") && !nameLower.contains("bootstrap")) {
+                    best = cl;
+                }
             }
+            return best;
+        } catch (Throwable t) {
+            t.printStackTrace();
+            return null;
         }
-        return best;
+    }
+
+    /**
+     * Called from C++ JNI after all mod classes have been defined into KnotClassLoader via JNI DefineClass.
+     */
+    public static void invokeEntrypoints(ClassLoader cl, byte[] fabricModJson) {
+        try (PrintWriter writer = getLogWriter()) {
+            if (writer != null) {
+                writer.println("[FabricInjector] Native class definition complete. Invoking entrypoints...");
+                writer.flush();
+            }
+
+            if (cl == null) {
+                if (writer != null) writer.println("[FabricInjector] Error: KnotClassLoader is null");
+                return;
+            }
+
+            String jsonText = new String(fabricModJson, StandardCharsets.UTF_8);
+            List<String> mainEntrypoints   = parseEntrypoints(jsonText, "main");
+            List<String> clientEntrypoints = parseEntrypoints(jsonText, "client");
+
+            if (writer != null) {
+                writer.println("[FabricInjector] main entrypoints:   " + mainEntrypoints);
+                writer.println("[FabricInjector] client entrypoints: " + clientEntrypoints);
+                writer.flush();
+            }
+
+            Class<?> modInitializerClass       = loadIfPresent(cl, "net.fabricmc.api.ModInitializer");
+            Class<?> clientModInitializerClass = loadIfPresent(cl, "net.fabricmc.api.ClientModInitializer");
+
+            for (String entrypoint : mainEntrypoints) {
+                callEntrypoint(writer, cl, entrypoint, modInitializerClass, "onInitialize");
+            }
+            for (String entrypoint : clientEntrypoints) {
+                callEntrypoint(writer, cl, entrypoint, clientModInitializerClass, "onInitializeClient");
+            }
+
+            if (writer != null) {
+                writer.println("[FabricInjector] Successfully injected and executed all entrypoints!");
+                writer.flush();
+            }
+        } catch (Throwable t) {
+            t.printStackTrace();
+        }
     }
 
     private static List<String> parseEntrypoints(String json, String key) {
@@ -215,25 +149,37 @@ public class FabricInjector extends Thread {
 
     private static void callEntrypoint(PrintWriter writer, ClassLoader cl,
             String className, Class<?> ifaceClass, String methodName) throws Exception {
-        writer.println("[FabricInjector] Instantiating entrypoint: " + className);
-        writer.flush();
+        if (writer != null) {
+            writer.println("[FabricInjector] Instantiating entrypoint: " + className);
+            writer.flush();
+        }
 
         Class<?> clazz;
         try {
             clazz = cl.loadClass(className);
         } catch (ClassNotFoundException e) {
-            throw new Exception("[FabricInjector] Entrypoint class not found: " + className, e);
+            if (writer != null) writer.println("[FabricInjector] Entrypoint class not found: " + className);
+            return;
         }
 
         Object instance;
         try {
-            instance = clazz.getDeclaredConstructor().newInstance();
+            var ctor = clazz.getDeclaredConstructor();
+            ctor.setAccessible(true);
+            instance = ctor.newInstance();
         } catch (Exception e) {
-            throw new Exception("[FabricInjector] Failed to instantiate: " + className, e);
+            if (writer != null) {
+                writer.println("[FabricInjector] Failed to instantiate " + className + ": " + e);
+                e.printStackTrace(writer);
+                writer.flush();
+            }
+            return;
         }
 
-        writer.println("[FabricInjector] Calling " + methodName + "() on " + className);
-        writer.flush();
+        if (writer != null) {
+            writer.println("[FabricInjector] Calling " + methodName + "() on " + className);
+            writer.flush();
+        }
 
         try {
             Method method;
@@ -242,14 +188,25 @@ public class FabricInjector extends Thread {
             } else {
                 method = clazz.getMethod(methodName);
             }
+            method.setAccessible(true);
             method.invoke(instance);
         } catch (InvocationTargetException ite) {
-            throw new Exception("[FabricInjector] " + methodName + "() threw an exception in " + className, ite.getCause());
-        } catch (NoSuchMethodException e) {
-            throw new Exception("[FabricInjector] Method " + methodName + "() not found in " + className, e);
+            if (writer != null) {
+                writer.println("[FabricInjector] " + methodName + "() threw exception in " + className + ": " + ite.getCause());
+                ite.getCause().printStackTrace(writer);
+                writer.flush();
+            }
+        } catch (Exception e) {
+            if (writer != null) {
+                writer.println("[FabricInjector] Method " + methodName + "() error in " + className + ": " + e);
+                e.printStackTrace(writer);
+                writer.flush();
+            }
         }
 
-        writer.println("[FabricInjector] " + methodName + "() completed for " + className);
-        writer.flush();
+        if (writer != null) {
+            writer.println("[FabricInjector] " + methodName + "() completed for " + className);
+            writer.flush();
+        }
     }
 }

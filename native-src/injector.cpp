@@ -95,6 +95,7 @@ static jclass DefineOrGetInjector(JNIEnv* jni_env) {
 #endif
 }
 
+#if !IS_FABRIC_MOD
 static jobjectArray GetJarClassesArray(JNIEnv* jni_env) {
   const auto byte_array_class = jni_env->FindClass("[B");
   if (!byte_array_class) {
@@ -120,6 +121,7 @@ static jobjectArray GetJarClassesArray(JNIEnv* jni_env) {
 
   return jar_classes_array;
 }
+#endif
 
 #if IS_FABRIC_MOD
 static jbyteArray GetFabricModJsonArray(JNIEnv* jni_env) {
@@ -132,20 +134,41 @@ static jbyteArray GetFabricModJsonArray(JNIEnv* jni_env) {
 }
 #endif
 
-static void CallInjector(JNIEnv* jni_env, jclass injector_class,
-                  jobjectArray jar_classes_array) {
+static void CallInjector(JNIEnv* jni_env, jclass injector_class) {
 #if IS_FABRIC_MOD
-  // FabricInjector.inject(byte[][] classes, byte[] fabricModJson)
-  const auto inject_method_id =
-      jni_env->GetStaticMethodID(injector_class, "inject", "([[B[B)V");
-  if (!inject_method_id) {
-    Error(L"Failed to find FabricInjector.inject method ID");
+  // 1. Locate KnotClassLoader via FabricInjector.findFabricClassLoader()
+  const auto find_cl_method = jni_env->GetStaticMethodID(
+      injector_class, "findFabricClassLoader", "()Ljava/lang/ClassLoader;");
+  if (!find_cl_method) {
+    Error(L"Failed to find FabricInjector.findFabricClassLoader method ID");
+  }
+  jobject knot_loader = jni_env->CallStaticObjectMethod(injector_class, find_cl_method);
+  if (!knot_loader) {
+    Error(L"Fabric KnotClassLoader not found on any active thread");
+  }
+
+  // 2. Define all mod classes directly into KnotClassLoader via JNI DefineClass (bypasses Java 17/21 module checks)
+  const size_t num_classes = sizeof(jar_classes_sizes) / sizeof(jar_classes_sizes[0]);
+  for (size_t i = 0; i < num_classes; i++) {
+    jclass defined_cls = jni_env->DefineClass(
+        nullptr, knot_loader, (const jbyte*)jar_classes_data[i], jar_classes_sizes[i]);
+    if (jni_env->ExceptionCheck()) {
+      jni_env->ExceptionClear(); // Clear LinkageError / duplicate class exceptions
+    }
+  }
+
+  // 3. Invoke entrypoints via FabricInjector.invokeEntrypoints(knot_loader, fabric_mod_json)
+  const auto invoke_ep_method = jni_env->GetStaticMethodID(
+      injector_class, "invokeEntrypoints", "(Ljava/lang/ClassLoader;[B)V");
+  if (!invoke_ep_method) {
+    Error(L"Failed to find FabricInjector.invokeEntrypoints method ID");
   }
   const auto fabric_json_array = GetFabricModJsonArray(jni_env);
-  jni_env->CallStaticVoidMethod(
-      injector_class, inject_method_id, jar_classes_array, fabric_json_array);
+  jni_env->CallStaticVoidMethod(injector_class, invoke_ep_method, knot_loader, fabric_json_array);
+
 #else
   // ForgeInjector.inject(byte[][] classes)
+  const auto jar_classes_array = GetJarClassesArray(jni_env);
   const auto inject_method_id =
       jni_env->GetStaticMethodID(injector_class, "inject", "([[B)V");
   if (!inject_method_id) {
@@ -163,9 +186,8 @@ void RunInjector() {
   GetJNIEnv(jvm, jni_env);
 
   const auto injector_class = DefineOrGetInjector(jni_env);
-  const auto jar_classes_array = GetJarClassesArray(jni_env);
 
-  CallInjector(jni_env, injector_class, jar_classes_array);
+  CallInjector(jni_env, injector_class);
 
   FreeLibraryAndExitThread(::global_dll_instance, 0);
 }
