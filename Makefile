@@ -43,21 +43,21 @@ build: clean build-library
 
 clean-injector:
 	@echo "Cleaning injector classes"
-	@$(RM) $(call FIX_PATH,injector-src/*.class) 2>NUL || exit 0
+	@$(RM) $(call FIX_PATH,injector-src/*.class) >nul 2>&1 || exit 0
 
 clean-header-converter:
 	@echo "Cleaning class to header converter classes"
-	@$(RM) $(call FIX_PATH,header-converter-src/*.class) 2>NUL || exit 0
+	@$(RM) $(call FIX_PATH,header-converter-src/*.class) >nul 2>&1 || exit 0
 
 clean-headers:
 	@echo "Cleaning converted injector and input jar"
-	@$(RM) $(call FIX_PATH,native-src/classes/injector.h) 2>NUL || exit 0
-	@$(RM) $(call FIX_PATH,native-src/classes/fabric_injector.h) 2>NUL || exit 0
-	@$(RM) $(call FIX_PATH,native-src/classes/jar.h) 2>NUL || exit 0
+	@$(RM) $(call FIX_PATH,native-src/classes/injector.h) >nul 2>&1 || exit 0
+	@$(RM) $(call FIX_PATH,native-src/classes/fabric_injector.h) >nul 2>&1 || exit 0
+	@$(RM) $(call FIX_PATH,native-src/classes/jar.h) >nul 2>&1 || exit 0
 
 clean-output-library:
 	@echo "Cleaning output dll"
-	@$(RM) $(call FIX_PATH,output.dll) 2>NUL || exit 0
+	@$(RM) $(call FIX_PATH,output.dll) >nul 2>&1 || exit 0
 
 clean: clean-injector clean-header-converter clean-headers clean-output-library
 	@echo "Cleaning everything"
