@@ -1,5 +1,13 @@
 all: build
 
+ifeq ($(OS),Windows_NT)
+    RM = -cmd /c del /f /q
+    FIX_PATH = $(subst /,\,$1)
+else
+    RM = -rm -f
+    FIX_PATH = $1
+endif
+
 build-injector:
 	@echo "Building injector classes (Forge + Fabric)"
 	@javac --release 21 injector-src/ForgeInjector.java
@@ -35,21 +43,21 @@ build: clean build-library
 
 clean-injector:
 	@echo "Cleaning injector classes"
-	@rm -f injector-src/*.class
+	@$(RM) $(call FIX_PATH,injector-src/*.class) 2>NUL || exit 0
 
 clean-header-converter:
 	@echo "Cleaning class to header converter classes"
-	@rm -f header-converter-src/*.class
+	@$(RM) $(call FIX_PATH,header-converter-src/*.class) 2>NUL || exit 0
 
 clean-headers:
 	@echo "Cleaning converted injector and input jar"
-	@rm -f native-src/classes/injector.h
-	@rm -f native-src/classes/fabric_injector.h
-	@rm -f native-src/classes/jar.h
+	@$(RM) $(call FIX_PATH,native-src/classes/injector.h) 2>NUL || exit 0
+	@$(RM) $(call FIX_PATH,native-src/classes/fabric_injector.h) 2>NUL || exit 0
+	@$(RM) $(call FIX_PATH,native-src/classes/jar.h) 2>NUL || exit 0
 
 clean-output-library:
 	@echo "Cleaning output dll"
-	@rm -f output.dll
+	@$(RM) $(call FIX_PATH,output.dll) 2>NUL || exit 0
 
 clean: clean-injector clean-header-converter clean-headers clean-output-library
 	@echo "Cleaning everything"
