@@ -1,11 +1,20 @@
 #ifndef STUB_CLASSES_JAR_H_
 #define STUB_CLASSES_JAR_H_
 
-#include "../jvm/jni.h"
+#include <stddef.h>
 
-const jbyte test_class_1[] = {0x01, 0x02, 0x03};
+#ifdef __cplusplus
+extern "C" {
+#endif
 
-const jbyte* jar_classes_data[] = {test_class_1};
-const jsize jar_classes_sizes[] = {3};
+extern const unsigned char jar_data[4];
+const unsigned char jar_data[4] = {0x50, 0x4B, 0x03, 0x04};
 
-#endif  //STUB_CLASSES_JAR_H_
+extern const size_t jar_size;
+const size_t jar_size = 4;
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif  // STUB_CLASSES_JAR_H_
