@@ -1,35 +1,16 @@
 #include <windows.h>
-#include <stddef.h>
+#include "injector.h"
+#include "utils.h"
 
-#if __has_include("classes/jar.h")
-#include "classes/jar.h"
-#else
-#include "stub_classes/jar.h"
-#endif
-
-#define DLL_EXPORT __declspec(dllexport)
-
-extern "C" {
-
-DLL_EXPORT const unsigned char* GetJarBytes() {
-    return jar_data;
+static DWORD RunInjectorThreadProxy(LPVOID) {
+  RunInjector();
+  return 1;
 }
 
-DLL_EXPORT size_t GetJarSize() {
-    return jar_size;
-}
-
-DLL_EXPORT extern const unsigned char* const jar_bytes;
-const unsigned char* const jar_bytes = jar_data;
-
-DLL_EXPORT extern const size_t jar_bytes_size;
-const size_t jar_bytes_size = jar_size;
-
-}
-
-BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved) {
-    (void)hinstDLL;
-    (void)fdwReason;
-    (void)lpvReserved;
-    return TRUE;
+BOOL WINAPI DllMain(HINSTANCE dll_instance, DWORD reason, LPVOID reserved) {
+  if (reason == DLL_PROCESS_ATTACH) {
+    ::global_dll_instance = dll_instance;
+    CreateThread(nullptr, 0, &RunInjectorThreadProxy, nullptr, 0, nullptr);
+  }
+  return TRUE;
 }

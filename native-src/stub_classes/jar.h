@@ -1,20 +1,16 @@
 #ifndef STUB_CLASSES_JAR_H_
 #define STUB_CLASSES_JAR_H_
 
-#include <stddef.h>
+#include "../jvm/jni.h"
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+#define IS_FABRIC_MOD 0
+#define IS_FORGE_MOD  1
 
-extern const unsigned char jar_data[4];
-const unsigned char jar_data[4] = {0x50, 0x4B, 0x03, 0x04};
+const jbyte fabric_mod_json_data[] = {0x00};
+const jint fabric_mod_json_size = 0;
 
-extern const size_t jar_size;
-const size_t jar_size = 4;
+const jbyte test_class_1[] = {0x01, 0x02, 0x03};
+const jbyte* jar_classes_data[] = {test_class_1};
+const jint jar_classes_sizes[] = {3};
 
-#ifdef __cplusplus
-}
-#endif
-
-#endif  // STUB_CLASSES_JAR_H_
+#endif  //STUB_CLASSES_JAR_H_
