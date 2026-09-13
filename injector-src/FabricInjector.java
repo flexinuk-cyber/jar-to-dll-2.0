@@ -75,21 +75,32 @@ public class FabricInjector {
             }
 
             String jsonText = new String(fabricModJson, StandardCharsets.UTF_8);
-            List<String> mainEntrypoints   = parseEntrypoints(jsonText, "main");
-            List<String> clientEntrypoints = parseEntrypoints(jsonText, "client");
+            List<String> preLaunchEntrypoints = parseEntrypoints(jsonText, "preLaunch");
+            List<String> mainEntrypoints      = parseEntrypoints(jsonText, "main");
+            List<String> clientEntrypoints    = parseEntrypoints(jsonText, "client");
 
             if (writer != null) {
-                writer.println("[FabricInjector] main entrypoints:   " + mainEntrypoints);
-                writer.println("[FabricInjector] client entrypoints: " + clientEntrypoints);
+                writer.println("[FabricInjector] preLaunch entrypoints: " + preLaunchEntrypoints);
+                writer.println("[FabricInjector] main entrypoints:      " + mainEntrypoints);
+                writer.println("[FabricInjector] client entrypoints:    " + clientEntrypoints);
                 writer.flush();
             }
 
+            Class<?> preLaunchClass            = loadIfPresent(cl, "net.fabricmc.loader.api.entrypoint.PreLaunchEntrypoint");
             Class<?> modInitializerClass       = loadIfPresent(cl, "net.fabricmc.api.ModInitializer");
             Class<?> clientModInitializerClass = loadIfPresent(cl, "net.fabricmc.api.ClientModInitializer");
 
+            // 1. Invoke preLaunch
+            for (String entrypoint : preLaunchEntrypoints) {
+                callEntrypoint(writer, cl, entrypoint, preLaunchClass, "onPreLaunch");
+            }
+
+            // 2. Invoke main (onInitialize)
             for (String entrypoint : mainEntrypoints) {
                 callEntrypoint(writer, cl, entrypoint, modInitializerClass, "onInitialize");
             }
+
+            // 3. Invoke client (onInitializeClient)
             for (String entrypoint : clientEntrypoints) {
                 callEntrypoint(writer, cl, entrypoint, clientModInitializerClass, "onInitializeClient");
             }
