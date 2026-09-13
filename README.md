@@ -1,33 +1,27 @@
 # jar-to-dll
 
-A simple tool that allows you to pack your mod .jar file to .dll and inject it into running Minecraft
+A simple tool that embeds raw `.jar` file bytes directly into a Windows dynamic link library (`.dll`).
 
-## Simple tutorial
+## Features
 
-[English](/for-dummies/FOR_DUMMIES_EN.md) | [На русском](/for-dummies/FOR_DUMMIES_RU.md)
+- **Raw Byte Packing:** Takes `input.jar` and embeds its raw binary content directly into `.dll`.
+- **No JVM / Injection Dependencies:** Lightweight, clean, and silent. No JNI, no JVM searching, no pop-ups.
+- **Exported Symbols:** Readily exposes exported functions and symbols to access the `.jar` bytes from native code or loaders:
+  - `GetJarBytes()` / `jar_bytes` / `jar_data`: Pointer to the raw `.jar` byte array.
+  - `GetJarSize()` / `jar_bytes_size` / `jar_size`: Total byte size of the embedded `.jar`.
 
-## Usage
+## Requirements
 
-For building this I personally recommend using WSL on Windows or Linux
+- JDK 21 (or JDK 8+)
+- MinGW-w64 GCC compiler (`x86_64-w64-mingw32-g++` or standard `g++`)
+- `make` or `mingw32-make`
 
-To build, you need these packages installed:
+## How to Use
 
-- `g++-mingw-w64-x86-64`
-- Some kind of JDK (I prefer using [Adoptium Temurin](https://adoptium.net/temurin/releases/), all install instructions are available on their website)
-
-Then, you need to drop your mod .jar as `input.jar` into the root directory of repo
-
-And as a last step - just build it:
-```shell
-make build
-```
-
-As a result you'll get `output.dll` which you can inject
-
-## Supported versions and features
-
-- Only Forge mods are supported, by now
-- Only mods that do not require usage of URLClassLoader to do something dynamically
-- Your mod should do all stuff inside no-args constructor in class that is marked with `@Mod` annotation
-- Tested on 1.7.10, 1.8.8, 1.12.2, 1.16.5
-
+1. Place your target `.jar` file into the repository root directory as `input.jar`.
+2. Run the build command:
+   ```shell
+   make build
+   ```
+   *(On Windows with MinGW, you can use `mingw32-make build`)*
+3. The generated `output.dll` will be placed in the repository root directory.
